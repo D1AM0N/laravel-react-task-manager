@@ -2,39 +2,124 @@
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\TaskController;
+use App\Http\Controllers\AdminController;
 use Illuminate\Support\Facades\Route;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail; 
+use Illuminate\Http\Request;
+use App\Mail\OtpMail; 
 
-Route::get('/', function () { return view('welcome'); });
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+*/
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
+// 1. Authentication Routes (Laravel Breeze defaults)
+require __DIR__.'/auth.php';
 
-Route::get('/admin/dashboard', function () {
-    if (!Auth::user()->is_admin) return redirect('/dashboard');
-    return view('admin.dashboard');
-})->middleware(['auth'])->name('admin.dashboard');
-
-Route::middleware('auth')->group(function () {
-    // API Routes
-    Route::get('/api/tasks', [TaskController::class, 'index']);
-    Route::post('/api/tasks', [TaskController::class, 'store']);
-    Route::put('/api/tasks/{task}', [TaskController::class, 'update']);
-    Route::delete('/api/tasks/{task}', [TaskController::class, 'destroy']);
-    
-    Route::get('/api/admin/summary', function() {
-        if (!Auth::user()->is_admin) return response()->json(['error' => 'Unauthorized'], 403);
-        // We fetch all users who are NOT admins, including their tasks
-        return response()->json([
-            'students' => User::where('is_admin', false)->with('tasks')->get()
-        ]);
-    });
-
-    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+// 2. Public Landing Page
+Route::get('/', function () { 
+    return view('welcome'); 
 });
 
-require __DIR__.'/auth.php';
+// 3. OTP Verification Core Logic
+Route::middleware(['auth'])->group(function () {
+    
+    // Show the Verification Screen
+    Route::get('/verify-otp', function () {
+        if (Auth::user()->is_otp_verified) {
+            return redirect()->route('dashboard');
+        }
+        return view('auth.verify-otp');
+    })->name('otp.verify');
+
+    // Process the Submitted Code
+    Route::post('/verify-otp', function (Request $request) {
+        $request->validate([
+            'otp_code' => 'required|numeric|digits:6'
+        ]);
+
+        $user = Auth::user();
+        
+        // Validate code and check expiration
+        if ($user->otp_code == $request->otp_code && now()->lt($user->otp_expires_at)) {
+            $user->update([
+                'is_otp_verified' => true, 
+                'otp_code' => null, 
+                'otp_expires_at' => null
+            ]);
+            return redirect()->route('dashboard');
+        }
+
+        return back()->withErrors(['otp_code' => 'The code is invalid or has expired.']);
+    })->name('otp.submit');
+
+    // Resend Logic: Generates new code and fires Mailtrap
+    // NOTE: This MUST be triggered via a POST form in your blade
+    Route::post('/resend-otp', function () {
+        $user = Auth::user();
+        
+        $newOtp = rand(100000, 999999);
+        
+        $user->update([
+            'otp_code' => $newOtp,
+            'otp_expires_at' => now()->addMinutes(10)
+        ]);
+
+        try {
+            Mail::to($user->email)->send(new OtpMail($newOtp));
+            return back()->with('status', 'A fresh verification code has been dispatched to your inbox.');
+        } catch (\Exception $e) {
+            return back()->withErrors(['otp_code' => 'Mail server connection failed.']);
+        }
+    })->name('otp.resend');
+
+    // HELPER: Catch accidental GET requests to resend-otp and redirect them back
+    Route::get('/resend-otp', function () {
+        return redirect()->route('otp.verify');
+    });
+});
+
+// 4. Secured Application Routes (Requires Authentication AND Verified OTP)
+Route::middleware(['auth', 'otp.verified'])->group(function () {
+    
+    // User Dashboard
+    Route::get('/dashboard', function () { 
+        return view('dashboard'); 
+    })->name('dashboard');
+
+    /* --- Admin Command Center --- */
+    Route::middleware('can:access-admin')->group(function () {
+        
+        Route::get('/admin/dashboard', [AdminController::class, 'dashboard'])->name('admin.dashboard');
+        Route::get('/admin/users', [AdminController::class, 'index'])->name('admin.users.index');
+        Route::post('/admin/users/{user}/role', [AdminController::class, 'updateRole'])->name('admin.users.updateRole');
+        
+        // Admin Summary API
+        Route::get('/api/admin/summary', function() {
+            $staffRoles = ['admin', 'superadmin', 'task-manager'];
+            return response()->json([
+                'students' => User::whereDoesntHave('roles', function($q) use ($staffRoles) {
+                    $q->whereIn('slug', $staffRoles);
+                })->with('tasks')->get()
+            ]);
+        });
+    });
+
+    /* --- Task Management API --- */
+    Route::prefix('api')->group(function () {
+        Route::get('/tasks', [TaskController::class, 'index']);
+        Route::post('/tasks', [TaskController::class, 'store']);
+        Route::put('/tasks/{task}', [TaskController::class, 'update']);
+        Route::delete('/tasks/{task}', [TaskController::class, 'destroy']);
+    });
+    
+    /* --- Profile Management --- */
+    Route::controller(ProfileController::class)->group(function () {
+        Route::get('/profile', 'edit')->name('profile.edit');
+        Route::patch('/profile', 'update')->name('profile.update');
+        Route::delete('/profile', 'destroy')->name('profile.destroy');
+    });
+});

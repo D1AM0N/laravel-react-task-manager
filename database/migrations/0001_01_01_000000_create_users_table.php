@@ -11,22 +11,33 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // 1. Create the Users Table with all Stormbreaker custom columns
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('name');
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
+
+            // --- CUSTOM PORTAL COLUMNS ---
+            $table->boolean('is_admin')->default(false); 
+            $table->string('otp_code')->nullable();
+            $table->timestamp('otp_expires_at')->nullable();
+            $table->boolean('is_otp_verified')->default(false);
+            // ------------------------------
+
             $table->rememberToken();
             $table->timestamps();
         });
 
+        // 2. Create Password Reset Tokens Table (Required for Auth)
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();
             $table->string('token');
             $table->timestamp('created_at')->nullable();
         });
 
+        // 3. Create Sessions Table (Required for Login Persistence)
         Schema::create('sessions', function (Blueprint $table) {
             $table->string('id')->primary();
             $table->foreignId('user_id')->nullable()->index();

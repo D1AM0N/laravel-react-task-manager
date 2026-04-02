@@ -1,131 +1,180 @@
 <x-app-layout>
     <x-slot name="header">
         <meta name="csrf-token" content="{{ csrf_token() }}">
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+        
         <div class="flex justify-between items-center">
-            <h2 class="font-bold text-xl text-gray-800 dark:text-white leading-tight">
-                {{ Auth::user()->is_admin ? 'Admin: My Personal Tasks' : 'My Assignments' }}
+            <h2 class="font-black text-2xl text-gray-800 dark:text-white leading-tight uppercase tracking-tighter italic">
+                {{ Auth::user()->hasRole('admin') ? 'Admin Operations' : 'My Assignments' }}
             </h2>
+            <div class="hidden md:block">
+                <span class="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] bg-indigo-500/10 px-3 py-1 rounded-full">
+                    System Active
+                </span>
+            </div>
         </div>
     </x-slot>
 
-    <div class="py-12 bg-gray-50 dark:bg-gray-950 min-h-screen">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="py-12 bg-gray-50 dark:bg-gray-950 min-h-screen transition-colors duration-500">
+        <div class="max-w-4xl mx-auto px-4">
             
-            <div id="progressSection" class="mb-8 bg-white dark:bg-gray-900 p-6 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm">
-                <div class="flex justify-between items-end mb-2">
+            <div class="mb-8 bg-white dark:bg-gray-900 p-8 rounded-[2rem] border border-gray-200 dark:border-gray-800 shadow-sm transition-all hover:shadow-indigo-500/5">
+                <div class="flex flex-col md:flex-row justify-between items-center md:items-end mb-4 gap-4 text-center md:text-left">
                     <div>
-                        <p class="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Workspace Progress</p>
-                        <h3 id="progressText" class="text-2xl font-bold dark:text-white">0%</h3>
+                        <p class="text-[10px] font-black text-indigo-600 dark:text-indigo-500 uppercase tracking-[0.2em] mb-1">Performance Index</p>
+                        <h3 id="progressText" class="text-5xl font-black dark:text-white italic tracking-tighter">0%</h3>
                     </div>
-                    <p id="taskCount" class="text-xs font-bold text-gray-400">0 of 0 Completed</p>
+                    <div class="text-center md:text-right">
+                        <p id="taskCount" class="text-xs font-bold text-gray-400 uppercase tracking-tight">Initializing Tasks...</p>
+                    </div>
                 </div>
-                <div class="w-full bg-gray-100 dark:bg-gray-800 h-3 rounded-full overflow-hidden">
-                    <div id="progressBar" class="bg-indigo-600 h-full transition-all duration-700 shadow-[0_0_15px_rgba(79,70,229,0.4)]" style="width: 0%"></div>
+                <div class="w-full bg-gray-100 dark:bg-gray-800 h-4 rounded-full overflow-hidden p-1">
+                    <div id="progressBar" class="bg-indigo-600 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_20px_rgba(79,70,229,0.4)]" style="width: 0%"></div>
                 </div>
             </div>
 
-            <div class="flex flex-col md:flex-row gap-4 mb-8 justify-between items-center">
-                <div class="flex bg-white dark:bg-gray-900 p-1 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm w-fit">
-                    <button onclick="setFilter('All')" class="filter-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all" data-f="All">All</button>
-                    <button onclick="setFilter('Pending')" class="filter-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all" data-f="Pending">Pending</button>
-                    <button onclick="setFilter('Overdue')" class="filter-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all text-red-500" data-f="Overdue">Overdue</button>
-                    <button onclick="setFilter('Completed')" class="filter-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all" data-f="Completed">Done</button>
+            <div id="taskList" class="grid gap-4">
+                <div class="flex justify-center py-20">
+                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
                 </div>
-                <input type="text" id="selfSearch" placeholder="Search my tasks..." onkeyup="render()" class="w-full md:w-64 rounded-lg border-gray-200 dark:border-gray-800 dark:bg-gray-900 dark:text-white text-sm focus:ring-indigo-500">
             </div>
-
-            <div id="taskList" class="grid gap-4"></div>
         </div>
     </div>
 
-    <div id="toast" class="fixed bottom-6 right-6 hidden bg-indigo-600 text-white px-6 py-3 rounded-xl shadow-2xl font-bold text-sm z-50"></div>
-
     <script>
         const csrf = document.querySelector('meta[name="csrf-token"]').content;
-        const isAdmin = {{ Auth::user()->is_admin ? 'true' : 'false' }};
+        const currentUserId = {{ Auth::id() }};
         let tasks = [];
-        let currentFilter = 'All';
 
-        function notify(msg) {
-            const t = document.getElementById('toast');
-            t.innerText = msg; t.classList.remove('hidden');
-            setTimeout(() => t.classList.add('hidden'), 3000);
-        }
+        // Stormbreaker Custom Toast Configuration
+        const Toast = Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true,
+            background: document.documentElement.classList.contains('dark') ? '#111827' : '#ffffff',
+            color: document.documentElement.classList.contains('dark') ? '#ffffff' : '#000000',
+            didOpen: (toast) => {
+                toast.addEventListener('mouseenter', Swal.stopTimer)
+                toast.addEventListener('mouseleave', Swal.resumeTimer)
+            }
+        });
 
         async function loadTasks() {
-            const res = await fetch('/api/tasks');
-            tasks = await res.json();
-            updateProgress();
-            render();
-        }
-
-        function updateProgress() {
-            const total = tasks.length;
-            const done = tasks.filter(t => t.status === 'Completed').length;
-            const percent = total > 0 ? Math.round((done / total) * 100) : 0;
-            
-            document.getElementById('progressBar').style.width = `${percent}%`;
-            document.getElementById('progressText').innerText = `${percent}%`;
-            document.getElementById('taskCount').innerText = `${done} of ${total} Completed`;
+            try {
+                const res = await fetch('/api/tasks');
+                const allTasks = await res.json();
+                
+                // Logic: Admins see everything, Students see their own.
+                // We use your filter logic but allow for Admin oversight if needed.
+                @if(Auth::user()->hasRole('admin'))
+                    tasks = allTasks;
+                @else
+                    tasks = allTasks.filter(t => t.user_id == currentUserId);
+                @endif
+                
+                renderUI();
+            } catch (err) { 
+                console.error("Load Failed", err); 
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Connection Lost',
+                    text: 'Unable to reach the TaskMaster API.',
+                    confirmButtonColor: '#4f46e5'
+                });
+            }
         }
 
         async function updateTask(id, payload) {
-            // Students can't call this, but the UI won't even show the option now.
-            if(!isAdmin) return; 
-            const res = await fetch(`/api/tasks/${id}`, {
-                method: 'PUT',
-                headers: { 'X-CSRF-TOKEN': csrf, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if(res.ok) { notify('Task Updated'); loadTasks(); }
+            const task = tasks.find(t => t.id === id);
+            const newStatus = payload.status;
+
+            try {
+                const res = await fetch(`/api/tasks/${id}`, {
+                    method: 'PUT',
+                    headers: { 
+                        'X-CSRF-TOKEN': csrf, 
+                        'Content-Type': 'application/json', 
+                        'Accept': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) { 
+                    if (newStatus === 'Completed') {
+                        Toast.fire({
+                            icon: 'success',
+                            title: 'Task Finalized',
+                            text: `"${task.title}" was marked as done.`,
+                        });
+                    } else {
+                        Toast.fire({
+                            icon: 'info',
+                            title: 'Task Reopened',
+                            text: `"${task.title}" moved to pending.`,
+                        });
+                    }
+                    loadTasks(); 
+                }
+            } catch (err) {
+                console.error("Update error", err);
+            }
         }
 
-        function setFilter(f) { currentFilter = f; render(); }
-
-        function render() {
+        function renderUI() {
             const list = document.getElementById('taskList');
-            const search = document.getElementById('selfSearch').value.toLowerCase();
-            list.innerHTML = '';
+            const total = tasks.length;
+            const done = tasks.filter(t => t.status === 'Completed').length;
+            const percent = total > 0 ? Math.round((done / total) * 100) : 0;
 
-            const filtered = tasks.filter(t => {
-                const matchesSearch = t.title.toLowerCase().includes(search);
-                const isOverdue = t.due_date && new Date(t.due_date) < new Date() && t.status !== 'Completed';
-                if (currentFilter === 'All') return matchesSearch;
-                if (currentFilter === 'Overdue') return isOverdue && matchesSearch;
-                return t.status === currentFilter && matchesSearch;
-            });
+            document.getElementById('progressBar').style.width = `${percent}%`;
+            document.getElementById('progressText').innerText = `${percent}%`;
+            document.getElementById('taskCount').innerText = `${done} OF ${total} OBJECTIVES CLEARED`;
 
-            filtered.forEach(t => {
+            if (tasks.length === 0) {
+                list.innerHTML = `
+                    <div class="bg-white dark:bg-gray-900 rounded-[2rem] p-16 border border-dashed border-gray-300 dark:border-gray-800 text-center shadow-inner">
+                        <p class="text-gray-400 font-black italic text-sm uppercase tracking-[0.3em]">No Missions Assigned</p>
+                    </div>`;
+                return;
+            }
+
+            list.innerHTML = tasks.map(t => {
                 const isOverdue = t.due_date && new Date(t.due_date) < new Date() && t.status !== 'Completed';
-                const item = document.createElement('div');
-                item.className = `bg-white dark:bg-gray-900 p-5 rounded-2xl border flex justify-between items-center transition-all ${isOverdue ? 'border-red-500 bg-red-50/10' : 'border-gray-200 dark:border-gray-800 shadow-sm'}`;
+                const isCompleted = t.status === 'Completed';
                 
-                // 🛡️ Logic: Admin sees Input, Student sees static Paragraph
-                const titleBlock = isAdmin 
-                    ? `<input type="text" value="${t.title}" onblur="updateTask(${t.id}, {title: this.value})" class="bg-transparent border-none p-0 font-bold dark:text-white w-full focus:ring-0">`
-                    : `<p class="font-bold text-gray-900 dark:text-white">${t.title}</p>`;
-
-                // 🛡️ Logic: Admin sees Select, Student sees a Badge
-                const statusBlock = isAdmin 
-                    ? `<select onchange="updateTask(${t.id}, {status: this.value})" class="text-xs font-bold rounded-lg border-none bg-gray-100 dark:bg-gray-800 text-indigo-600 focus:ring-indigo-500">
-                        <option value="Pending" ${t.status === 'Pending' ? 'selected' : ''}>Pending</option>
-                        <option value="In Progress" ${t.status === 'In Progress' ? 'selected' : ''}>Active</option>
-                        <option value="Completed" ${t.status === 'Completed' ? 'selected' : ''}>Done</option>
-                       </select>`
-                    : `<span class="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600">${t.status}</span>`;
-
-                item.innerHTML = `
+                return `
+                <div class="bg-white dark:bg-gray-900 p-6 rounded-2xl border transition-all duration-500 ${isOverdue ? 'border-red-500/40 bg-red-500/[0.02]' : 'border-gray-200 dark:border-gray-800'} flex justify-between items-center group hover:shadow-xl hover:shadow-indigo-500/5 hover:border-indigo-500/40">
                     <div class="flex-1">
-                        ${titleBlock}
-                        <p class="text-[10px] font-bold ${isOverdue ? 'text-red-500' : 'text-gray-400'} uppercase mt-1">
-                            ${isOverdue ? '⚠️ Overdue' : 'Due'}: ${t.due_date || 'No Deadline'}
-                        </p>
+                        <p class="font-black text-xl tracking-tight dark:text-white transition-all duration-500 ${isCompleted ? 'line-through opacity-20 grayscale' : ''}">${t.title}</p>
+                        
+                        <div class="flex items-center gap-4 mt-2">
+                            ${t.due_date ? `
+                                <div class="flex items-center gap-1.5">
+                                    <span class="text-[10px] font-black uppercase tracking-widest ${isOverdue ? 'text-red-500 animate-pulse' : 'text-gray-400'}">
+                                        ${isOverdue ? '⚠️ Overdue' : 'Due'}: ${new Date(t.due_date).toLocaleDateString()}
+                                    </span>
+                                </div>` : ''}
+                            
+                            ${isCompleted ? `
+                                <span class="text-[9px] font-black bg-green-500/10 text-green-500 px-3 py-1 rounded-full uppercase italic tracking-widest">
+                                    Verified
+                                </span>` : ''}
+                        </div>
                     </div>
-                    ${statusBlock}
-                `;
-                list.appendChild(item);
-            });
+
+                    <div class="flex items-center gap-4">
+                        <select onchange="updateTask(${t.id}, {status: this.value})" 
+                                class="text-[10px] font-black uppercase tracking-widest rounded-xl border-none bg-gray-100 dark:bg-gray-800 text-indigo-600 focus:ring-2 focus:ring-indigo-500 py-2.5 px-4 cursor-pointer transition-all hover:bg-indigo-500 hover:text-white dark:hover:bg-indigo-600">
+                            <option value="Pending" ${t.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                            <option value="Completed" ${t.status === 'Completed' ? 'selected' : ''}>Complete</option>
+                        </select>
+                    </div>
+                </div>`;
+            }).join('');
         }
+
         loadTasks();
     </script>
 </x-app-layout>
