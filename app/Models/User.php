@@ -13,18 +13,10 @@ class User extends Authenticatable
     use HasFactory, Notifiable;
 
     protected $fillable = [
-        'name', 
-        'email', 
-        'password', 
-        'otp_code', 
-        'otp_expires_at', 
-        'is_otp_verified'
+        'name', 'email', 'password', 'otp_code', 'otp_expires_at', 'is_otp_verified'
     ];
 
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
+    protected $hidden = ['password', 'remember_token'];
 
     protected function casts(): array
     {
@@ -36,15 +28,29 @@ class User extends Authenticatable
         ];
     }
 
-    /** --- RBAC LOGIC --- **/
+    /** --- RBAC LOGIC (Optimized for Cloud) --- **/
 
     public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class);
     }
 
+    // New optimized permissions relationship
+    public function permissions()
+    {
+        return $this->hasManyThrough(Permission::class, Role::class);
+    }
+
     public function hasPermission($permissionSlug): bool
     {
+        // SPEED FIX: If roles and permissions are already loaded, check memory
+        if ($this->relationLoaded('roles')) {
+            return $this->roles->contains(function ($role) use ($permissionSlug) {
+                return $role->permissions->contains('slug', $permissionSlug);
+            });
+        }
+
+        // FALLBACK: Only hits Aiven if not pre-loaded
         return $this->roles()->whereHas('permissions', function ($query) use ($permissionSlug) {
             $query->where('slug', $permissionSlug);
         })->exists();
@@ -52,14 +58,15 @@ class User extends Authenticatable
 
     public function hasRole($role): bool
     {
-        // Support checking multiple roles at once via array or single string
-        if (is_array($role)) {
-            return $this->roles->pluck('slug')->intersect($role)->isNotEmpty();
+        if ($this->relationLoaded('roles')) {
+            $roles = is_array($role) ? $role : [$role];
+            return $this->roles->pluck('slug')->intersect($roles)->isNotEmpty();
         }
-        return $this->roles->where('slug', $role)->isNotEmpty();
+        
+        return is_array($role) 
+            ? $this->roles()->whereIn('slug', $role)->exists() 
+            : $this->roles()->where('slug', $role)->exists();
     }
-
-    /** --- TASK LOGIC --- **/
 
     public function tasks(): HasMany
     {

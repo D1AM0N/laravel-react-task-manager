@@ -13,14 +13,14 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        if (Schema::hasTable('permissions')) {
+       if (Schema::hasTable('permissions')) {
             Permission::all()->each(function ($permission) {
                 Gate::define($permission->slug, function ($user) use ($permission) {
                     return $user->hasPermission($permission->slug);
                 });
             });
         }
-
+            
         // Global Admin/SuperAdmin/Task-Manager Access Gate
         Gate::define('access-admin', function ($user) {
             return $user->hasRole(['admin', 'superadmin', 'task-manager']);
