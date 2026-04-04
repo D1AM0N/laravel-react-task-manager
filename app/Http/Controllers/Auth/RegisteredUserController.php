@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Log; // Explicitly imported for safety
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rules;
 use Illuminate\View\View;
 
@@ -35,10 +35,8 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
-        // Generate the code
         $otp = rand(100000, 999999);
 
-        // Create the user
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
@@ -52,11 +50,8 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
-        // Send the Mailtrap Email
         try {
-            Mail::raw("Welcome new user, your verification code is: $otp", function ($message) use ($user) {
-                $message->to($user->email)->subject('Verify Your Account');
-            });
+            Mail::to($user->email)->send(new \App\Mail\OtpMail($otp));
         } catch (\Exception $e) {
             Log::error("Mail Error: " . $e->getMessage());
         }
