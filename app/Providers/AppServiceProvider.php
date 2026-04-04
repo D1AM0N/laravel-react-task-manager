@@ -13,7 +13,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-       if (Schema::hasTable('permissions')) {
+        \URL::forceScheme('https');
+
+        if (Schema::hasTable('permissions')) {
             Permission::all()->each(function ($permission) {
                 Gate::define($permission->slug, function ($user) use ($permission) {
                     return $user->hasPermission($permission->slug);
