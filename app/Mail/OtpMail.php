@@ -14,17 +14,11 @@ class OtpMail extends Mailable
 
     public $otp;
 
-    /**
-     * Create a new message instance.
-     */
     public function __construct($otp)
     {
         $this->otp = $otp;
     }
 
-    /**
-     * Get the message envelope.
-     */
     public function envelope(): Envelope
     {
         return new Envelope(
@@ -32,19 +26,13 @@ class OtpMail extends Mailable
         );
     }
 
-    /**
-     * Get the message content definition.
-     */
     public function content(): Content
     {
         return new Content(
-            view: 'emails.otp', // This points to resources/views/emails/otp.blade.php
+            view: 'emails.otp',
         );
     }
 
-    /**
-     * Get the attachments for the message.
-     */
     public function attachments(): array
     {
         return [];
